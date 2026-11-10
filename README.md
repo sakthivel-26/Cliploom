@@ -1,10 +1,18 @@
-# Cliploom — local video studio
+# Cliploom — online subtitle editor and local video studio
 
-A working first version for turning your own videos into captioned vertical clips. Runs on Windows using your computer's CPU. No paid AI key, subscription, or cloud rendering is required.
+The [online editor](https://sakthivel-26.github.io/Cliploom/editor.html) works in desktop and mobile browsers. It lets you add or import Tamil, Tanglish and English captions, preview them, download SRT, and export a captioned video where the browser supports recording. Video processing happens on the visitor's device; there is no upload server or paid AI key.
 
-Cliploom's original application code is available under the [MIT license](LICENSE). Third-party libraries, FFmpeg builds and speech-model weights retain their own terms. The source archive is suitable for publishing to a repository after its name and ownership are chosen; no public repository is connected yet.
+The separate Windows edition below adds local Whisper transcription, suggested cuts, MP4 rendering and MCP tools. It runs on your computer's CPU.
 
-## Start
+Cliploom's original application code is available under the [MIT license](LICENSE). Third-party libraries, FFmpeg builds and speech-model weights retain their own terms.
+
+## Online and mobile
+
+Open **https://sakthivel-26.github.io/Cliploom/editor.html** on a phone or computer. Choose a video, add lines or import an SRT, edit the timing and style, then download. On supported browsers use **Add to Home Screen** or the **Install app** button for an app-like launcher.
+
+The online editor stores one draft in the browser's IndexedDB when storage is available. Browser storage can be cleared or evicted; keep copies of exported files. It does not sync between devices. Video export records in real time, is limited to three minutes, and saves as MP4 or WebM depending on `MediaRecorder` support. If export is unavailable, SRT download still works. The browser edition has no automatic transcription yet. The free static hosting cannot run the Python/Whisper backend for all visitors.
+
+## Start the Windows edition
 
 1. Open this folder in Windows File Explorer.
 2. Double-click **Start-Cliploom.cmd**. Keep its server window open.
@@ -46,9 +54,9 @@ If Ollama is running at `http://127.0.0.1:11434`, installed model names appear i
 
 Paid services purchased by this project: **₹0**. Your ₹2,000 budget is not spent automatically. Existing hardware, electricity, internet, bandwidth and disk space still have costs.
 
-This is a personal prototype, not a public subscription service. It has no customer accounts, payments, remote hosting, team isolation, social publishing, billing, or native phone app. The layout supports small screens, but the server binds to this computer's loopback address; another phone cannot connect by default. Do not expose it publicly. Production hosting and the commercial usage of bundled components require a separate deployment and licensing review.
+The online editor is publicly hosted as a static site and can be installed from supported mobile browsers. It has no customer accounts, payments, cloud storage, team isolation, social publishing, billing, automatic online transcription, or native app-store package. The Windows edition's server binds to loopback; do not expose it publicly. Production cloud processing and the commercial usage of bundled components require a separate deployment and licensing review.
 
-`/subtitle-adder` is a search-facing page with original explanatory text and a descriptive title. Its content can be indexed only after a suitable public deployment. The local URL cannot appear as a useful public Google result. Search engines do not guarantee indexing or ranking. For a public video service, each visitor needs an authenticated account, isolated storage, upload limits, an abuse policy and a processing budget. The current SQLite store persists local projects for one person; it is not multi-user isolation.
+The public landing page and editor have descriptive titles and a sitemap. Search engines do not guarantee indexing or ranking. For a future cloud video service, each visitor needs an authenticated account, isolated storage, upload limits, an abuse policy and a processing budget. The current SQLite store persists local projects for one person; it is not multi-user isolation.
 
 No ads run in this edition. Google AdSense needs a public site under your control, original content, policy approval and your publisher code. A blank ad slot does not earn money. Once approved, the publisher ID and allowed placement can be added to the public pages; the editor should stay usable if ads do not load. A premium edition can be built later around more processing time, advanced templates and shared workspaces. Open-source MIT code remains available to users who run it themselves.
 

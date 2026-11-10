@@ -25,6 +25,7 @@ function timecode(seconds) {
   const secs = Math.floor(milliseconds / 1000) % 60;
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(milliseconds % 1000).padStart(3, '0')}`;
 }
+function displayTime(seconds) { return timecode(Math.max(0, Number(seconds) || 0)).replace(',', '.'); }
 function parseTime(value) {
   const match = value.trim().match(/^(?:(\d+):)?(\d{1,2}):(\d{2})[,.](\d{1,3})$/);
   if (!match) return NaN;
@@ -75,8 +76,9 @@ function drawRows() {
       label.textContent = key === 'start' ? 'START (SEC)' : 'END (SEC)';
       const input = document.createElement('input');
       input.type = 'number'; input.min = '0'; input.step = '0.1'; input.inputMode = 'decimal'; input.value = String(caption[key]);
-      input.addEventListener('input', () => { caption[key] = Number(input.value); scheduleSave(); drawOverlay(); });
-      label.append(input); top.append(label);
+      const readable = document.createElement('span'); readable.className = 'row-time'; readable.textContent = displayTime(caption[key]);
+      input.addEventListener('input', () => { caption[key] = Number(input.value); readable.textContent = displayTime(caption[key]); scheduleSave(); drawOverlay(); });
+      label.append(input, readable); top.append(label);
     }
     const remove = document.createElement('button');
     remove.type = 'button'; remove.title = 'Delete line'; remove.setAttribute('aria-label', `Delete caption ${index + 1}`); remove.textContent = '×';
@@ -95,10 +97,10 @@ function drawOverlay() {
   const line = captions.find(c => video.currentTime >= Number(c.start) && video.currentTime < Number(c.end));
   overlay.textContent = line?.text || '';
   overlay.style.display = line?.text ? 'block' : 'none';
-  overlay.style.color = colors.includes($('#colour').value) ? $('#colour').value : colors[1];
+  overlay.style.color = $('#colour').value === 'custom' ? $('#custom-colour').value : (colors.includes($('#colour').value) ? $('#colour').value : colors[1]);
   overlay.style.fontSize = `${$('#size').value}px`;
   overlay.style.textShadow = $('#shadow').checked ? '0 2px 2px #000,2px 0 2px #000,-2px 0 2px #000,0 -2px 2px #000' : '0 2px 6px #0008';
-  $('#size-value').textContent = $('#size').value;
+  $('#size-value').textContent = `${$('#size').value} px`;
 }
 function download(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -191,7 +193,7 @@ function writeFile(file) {
 function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    try { await writeProject({ captions, color: $('#colour').value, size: $('#size').value, shadow: $('#shadow').checked }); }
+    try { await writeProject({ captions, color: $('#colour').value, customColor: $('#custom-colour').value, size: $('#size').value, shadow: $('#shadow').checked }); }
     catch { message('Browser storage is full. Download your captions before leaving.'); }
   }, 500);
 }
@@ -221,6 +223,7 @@ $('#replace').onclick = () => $('#file').click();
 $('#drop').addEventListener('drop', event => { const file = event.dataTransfer.files[0]; if (file) loadVideo(file); });
 video.onloadedmetadata = () => { duration = video.duration; $('#duration').textContent = Number.isFinite(duration) ? `${duration.toFixed(1)} seconds` : ''; drawOverlay(); };
 video.ontimeupdate = drawOverlay;
+video.addEventListener('seeked', drawOverlay);
 video.onerror = () => message('This browser cannot play the selected video. Try an MP4 with H.264 video.');
 $('#generate').onclick = async () => {
   if (!mediaFile) { message('Choose a video before generating subtitles.'); return; }
@@ -258,6 +261,8 @@ $('#generate').onclick = async () => {
     if (state.cancelled) return;
     if (!result.length) throw Error('No speech was detected. Try a clearer recording or add captions manually.');
     captions = result;
+    video.pause();
+    video.currentTime = Math.max(0, result[0].start);
     drawRows(); drawOverlay(); scheduleSave();
     asrResult(`Generated ${captions.length} subtitle lines. Review and correct them before exporting.`);
     message(`Generated ${captions.length} subtitle lines. Review and correct them before exporting.`);
@@ -289,7 +294,18 @@ $('#srt-file').onchange = async event => {
   captions = parsed; drawRows(); drawOverlay(); scheduleSave(); message(`Imported ${parsed.length} caption lines.`);
   event.target.value = '';
 };
-for (const selector of ['#colour', '#size', '#shadow']) $('#'+selector.slice(1)).addEventListener('input', () => { drawOverlay(); scheduleSave(); });
+for (const selector of ['#colour', '#size', '#shadow']) $(selector).addEventListener('input', () => { drawOverlay(); scheduleSave(); });
+$('#custom-colour').addEventListener('input', () => { $('#colour').value = 'custom'; drawOverlay(); scheduleSave(); });
+$('#apply-timing').onclick = () => {
+  const shift = Number($('#timing-offset').value);
+  if (!Number.isFinite(shift) || shift < -30 || shift > 30) { message('Enter a timing shift between -30 and 30 seconds.'); return; }
+  if (!captions.length || !shift) return;
+  if (!Number.isFinite(duration) || duration <= 0) { message('Load a video before shifting caption times.'); return; }
+  if (captions.some(c => Number(c.start) + shift < 0 || Number(c.end) + shift > duration)) { message('This shift would move a caption outside the video. Use a smaller value.'); return; }
+  captions = captions.map(c => ({ ...c, start: Math.round((Number(c.start) + shift) * 100) / 100, end: Math.round((Number(c.end) + shift) * 100) / 100 }));
+  $('#timing-offset').value = '0';
+  drawRows(); drawOverlay(); scheduleSave(); message('Subtitle timing shifted.');
+};
 $('#srt').onclick = () => {
   try {
     const lines = cleanCaptions();
@@ -308,7 +324,7 @@ function drawCanvasFrame(canvas, context, lines) {
   if (!line) return;
   context.font = `800 ${Number($('#size').value) * 1.65}px system-ui, sans-serif`;
   context.textAlign = 'center'; context.textBaseline = 'middle';
-  context.fillStyle = $('#colour').value;
+  context.fillStyle = $('#colour').value === 'custom' ? $('#custom-colour').value : $('#colour').value;
   context.lineWidth = $('#shadow').checked ? 8 : 0;
   context.strokeStyle = '#101010'; context.lineJoin = 'round';
   const maxWidth = w * .86;
@@ -400,7 +416,8 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
     const saved = await readProject();
     if (saved) {
       captions = Array.isArray(saved.captions) ? saved.captions : [];
-      $('#colour').value = colors.includes(saved.color) ? saved.color : colors[1];
+      $('#colour').value = colors.includes(saved.color) || saved.color === 'custom' ? saved.color : colors[1];
+      if (/^#[0-9a-f]{6}$/i.test(saved.customColor || '')) $('#custom-colour').value = saved.customColor;
       $('#size').value = saved.size || 34; $('#shadow').checked = saved.shadow !== false;
       drawRows(); drawOverlay();
       if (saved.file instanceof Blob) await loadVideo(saved.file, false);

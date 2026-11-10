@@ -1,6 +1,6 @@
 # Cliploom — online subtitle editor and local video studio
 
-The [online editor](https://sakthivel-26.github.io/Cliploom/editor.html) works in desktop and mobile browsers. It lets you add or import Tamil, Tanglish and English captions, preview them, download SRT, and export a captioned video where the browser supports recording. Video processing happens on the visitor's device; there is no upload server or paid AI key.
+The [online editor](https://sakthivel-26.github.io/Cliploom/editor.html) works in desktop and mobile browsers. It automatically generates Tamil, Tanglish and English subtitles from a video's audio with a multilingual Whisper model, then lets you correct them, import SRT, and export a captioned video where the browser supports recording. Video processing happens on the visitor's device; there is no upload server or paid AI key.
 
 The separate Windows edition below adds local Whisper transcription, suggested cuts, MP4 rendering and MCP tools. It runs on your computer's CPU.
 
@@ -8,9 +8,9 @@ Cliploom's original application code is available under the [MIT license](LICENS
 
 ## Online and mobile
 
-Open **https://sakthivel-26.github.io/Cliploom/editor.html** on a phone or computer. Choose a video, add lines or import an SRT, edit the timing and style, then download. On supported browsers use **Add to Home Screen** or the **Install app** button for an app-like launcher.
+Open **https://sakthivel-26.github.io/Cliploom/editor.html** on a phone or computer. Choose a video, select the language and model, then click **Generate subtitles automatically**. Correct the result, choose a style and download. You can also add lines or import an SRT. On supported browsers use **Add to Home Screen** or the **Install app** button for an app-like launcher.
 
-The online editor stores one draft in the browser's IndexedDB when storage is available. Browser storage can be cleared or evicted; keep copies of exported files. It does not sync between devices. Video export records in real time, is limited to three minutes, and saves as MP4 or WebM depending on `MediaRecorder` support. If export is unavailable, SRT download still works. The browser edition has no automatic transcription yet. The free static hosting cannot run the Python/Whisper backend for all visitors.
+The online editor stores one draft in the browser's IndexedDB when storage is available. Browser storage can be cleared or evicted; keep copies of exported files. It does not sync between devices. Transcription accepts browser-playable videos up to five minutes and 200 MB; the first use downloads a speech model from Hugging Face. The `base` model prioritizes accuracy over speed and size; `tiny` is faster. The browser decodes audio and runs the model locally. Transcription can still miss words, particularly with noisy or mixed-language speech, and segment timing may need correction. Video export records in real time, is limited to three minutes, and saves as MP4 or WebM depending on `MediaRecorder` support. If export is unavailable, SRT download still works. The free static hosting does not run a Python backend for visitors.
 
 ## Start the Windows edition
 
@@ -54,7 +54,7 @@ If Ollama is running at `http://127.0.0.1:11434`, installed model names appear i
 
 Paid services purchased by this project: **₹0**. Your ₹2,000 budget is not spent automatically. Existing hardware, electricity, internet, bandwidth and disk space still have costs.
 
-The online editor is publicly hosted as a static site and can be installed from supported mobile browsers. It has no customer accounts, payments, cloud storage, team isolation, social publishing, billing, automatic online transcription, or native app-store package. The Windows edition's server binds to loopback; do not expose it publicly. Production cloud processing and the commercial usage of bundled components require a separate deployment and licensing review.
+The online editor is publicly hosted as a static site and can be installed from supported mobile browsers. It has no customer accounts, payments, cloud storage, team isolation, social publishing, billing, or native app-store package. The Windows edition's server binds to loopback; do not expose it publicly. Production cloud processing and the commercial usage of bundled components require a separate deployment and licensing review.
 
 The public landing page and editor have descriptive titles and a sitemap. Search engines do not guarantee indexing or ranking. For a future cloud video service, each visitor needs an authenticated account, isolated storage, upload limits, an abuse policy and a processing budget. The current SQLite store persists local projects for one person; it is not multi-user isolation.
 

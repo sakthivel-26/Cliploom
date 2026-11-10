@@ -9,6 +9,7 @@ let duration = 0;
 let db = null;
 let saveTimer = null;
 let activeExport = null;
+let activeAsr = null;
 let installEvent = null;
 
 function message(text) {
@@ -106,6 +107,49 @@ function download(blob, filename) {
   document.body.append(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
+function resampleMono(buffer) {
+  const channels = buffer.numberOfChannels;
+  const sourceLength = buffer.length;
+  const targetLength = Math.round(sourceLength * 16000 / buffer.sampleRate);
+  const output = new Float32Array(targetLength);
+  const channelData = Array.from({ length: channels }, (_, index) => buffer.getChannelData(index));
+  for (let index = 0; index < targetLength; index++) {
+    const position = index * buffer.sampleRate / 16000;
+    const left = Math.min(sourceLength - 1, Math.floor(position));
+    const right = Math.min(sourceLength - 1, left + 1);
+    const fraction = position - left;
+    let sample = 0;
+    for (const channel of channelData) sample += channel[left] * (1 - fraction) + channel[right] * fraction;
+    output[index] = sample / channels;
+  }
+  return output;
+}
+async function decodeVideoAudio(file) {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) throw Error('This browser cannot decode video audio.');
+  let context;
+  try { context = new AudioContextClass({ sampleRate: 16000 }); }
+  catch { context = new AudioContextClass(); }
+  try {
+    const buffer = await context.decodeAudioData(await file.arrayBuffer());
+    if (!buffer.length) throw Error('No audio was found in this video.');
+    return resampleMono(buffer);
+  } finally { context.close().catch(() => {}); }
+}
+function asrStatus(text, percent) {
+  $('#asr-status').textContent = text;
+  if (Number.isFinite(percent)) $('#asr-bar').value = Math.max(0, Math.min(100, percent));
+}
+function asrResult(text, failed = false) {
+  $('#asr-result').textContent = text;
+  $('#asr-result').hidden = !text;
+  $('#asr-result').style.color = failed ? '#ad4336' : '#3d6541';
+}
+function finishAsr() {
+  $('#generate').disabled = false;
+  $('#asr-progress').hidden = true;
+  activeAsr = null;
+}
 function openDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('cliploom-online', 1);
@@ -154,6 +198,7 @@ function scheduleSave() {
 async function loadVideo(file, persist = true) {
   if (!file || (!file.type.startsWith('video/') && !/\.(mp4|mov|webm)$/i.test(file.name || ''))) { message('Choose a video supported by this browser.'); return; }
   if (file.size > 200 * 1024 * 1024) { message('Choose a video under 200 MB for browser editing.'); return; }
+  if (activeAsr) $('#asr-cancel').click();
   if (mediaUrl) URL.revokeObjectURL(mediaUrl);
   mediaFile = file;
   mediaUrl = URL.createObjectURL(file);
@@ -177,6 +222,61 @@ $('#drop').addEventListener('drop', event => { const file = event.dataTransfer.f
 video.onloadedmetadata = () => { duration = video.duration; $('#duration').textContent = Number.isFinite(duration) ? `${duration.toFixed(1)} seconds` : ''; drawOverlay(); };
 video.ontimeupdate = drawOverlay;
 video.onerror = () => message('This browser cannot play the selected video. Try an MP4 with H.264 video.');
+$('#generate').onclick = async () => {
+  if (!mediaFile) { message('Choose a video before generating subtitles.'); return; }
+  if (!Number.isFinite(duration) || duration <= 0) { message('Wait for the video to load.'); return; }
+  if (duration > 300) { message('Automatic subtitles currently support videos up to 5 minutes in the browser.'); return; }
+  if (captions.some(c => c.text.trim()) && !confirm('Replace the current captions with automatically generated ones?')) return;
+  if (activeAsr) return;
+  const state = { cancelled: false, worker: null };
+  activeAsr = state;
+  $('#generate').disabled = true;
+  $('#asr-progress').hidden = false;
+  asrResult('');
+  asrStatus('Extracting speech audio from your video…', 0);
+  try {
+    const audio = await decodeVideoAudio(mediaFile);
+    if (state.cancelled) return;
+    asrStatus('Loading the speech model. First use needs a download…', 0);
+    const worker = new Worker('asr-worker.js', { type: 'module' });
+    state.worker = worker;
+    const result = await new Promise((resolve, reject) => {
+      state.reject = reject;
+      worker.onmessage = event => {
+        const data = event.data || {};
+        if (data.type === 'done') resolve(data.segments);
+        else if (data.type === 'error') reject(Error(data.message));
+        else if (data.type === 'progress') {
+          if (data.stage === 'download') asrStatus(`Downloading speech model ${data.percent}%…`, Math.min(70, data.percent * .7));
+          else if (data.stage === 'transcribing') asrStatus('Transcribing speech and aligning captions. This can take several minutes…', 75);
+          else if (data.stage === 'loading') asrStatus('Loading multilingual speech model…', 0);
+        }
+      };
+      worker.onerror = () => reject(Error('Could not load the browser speech model. Check your internet connection and try again.'));
+      worker.postMessage({ audio, model: $('#speech-model').value, language: $('#speech-language').value }, [audio.buffer]);
+    });
+    if (state.cancelled) return;
+    if (!result.length) throw Error('No speech was detected. Try a clearer recording or add captions manually.');
+    captions = result;
+    drawRows(); drawOverlay(); scheduleSave();
+    asrResult(`Generated ${captions.length} subtitle lines. Review and correct them before exporting.`);
+    message(`Generated ${captions.length} subtitle lines. Review and correct them before exporting.`);
+  } catch (error) {
+    if (!state.cancelled) { asrResult(error.message || 'Automatic subtitles failed.', true); message(error.message || 'Automatic subtitles failed.'); }
+  } finally {
+    state.worker?.terminate();
+    if (activeAsr === state) finishAsr();
+  }
+};
+$('#asr-cancel').onclick = () => {
+  if (!activeAsr) return;
+  activeAsr.cancelled = true;
+  activeAsr.worker?.terminate();
+  activeAsr.reject?.(Error('Transcription cancelled.'));
+  finishAsr();
+  asrResult('Automatic transcription cancelled.');
+  message('Automatic transcription cancelled.');
+};
 $('#add').onclick = () => { const start = mediaFile ? Math.floor(video.currentTime * 10) / 10 : (captions.at(-1)?.end || 0); captions.push({ start, end: Math.min(duration || Infinity, start + 3), text: '' }); drawRows(); scheduleSave(); };
 $('#at-playhead').onclick = () => { if (!mediaFile) { message('Choose a video first.'); return; } $('#add').click(); };
 $('#clear').onclick = () => { if (captions.length && !confirm('Clear all caption lines?')) return; captions = []; drawRows(); drawOverlay(); scheduleSave(); };

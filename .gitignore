@@ -1,0 +1,14 @@
+.venv/
+data/
+__pycache__/
+.pytest_cache/
+mcp-config.json
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.mp4
+*.mov
+*.mkv
+*.webm

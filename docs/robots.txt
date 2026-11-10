@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://sakthivel-26.github.io/Cliploom/sitemap.xml

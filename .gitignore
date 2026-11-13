@@ -2,6 +2,7 @@
 data/
 __pycache__/
 .pytest_cache/
+docs/public/
 mcp-config.json
 .env
 .env.*

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 1000" fill="none">
+<defs><linearGradient id="silk" x1="0" y1="0" x2="1440" y2="1000" gradientUnits="userSpaceOnUse"><stop stop-color="#1c4617"/><stop offset=".4" stop-color="#83d52a"/><stop offset=".65" stop-color="#173915"/><stop offset=".85" stop-color="#a5ee4b"/><stop offset="1" stop-color="#244b14"/></linearGradient></defs>
+<g stroke="url(#silk)" stroke-linecap="round">
+<path d="M-200 80C50 340 330-230 540 100S970 300 1180 30S1450 70 1640 200" stroke-width="100"/>
+<path d="M-200 310C100 520 190 50 520 360S910 550 1140 290S1450 270 1650 490" stroke-width="46"/>
+<path d="M-200 510C80 270 270 920 550 610S980 260 1200 600S1440 740 1650 490" stroke-width="95"/>
+<path d="M-200 840C150 510 370 1110 650 840S1070 630 1250 910S1430 920 1620 690" stroke-width="48"/>
+</g></svg>

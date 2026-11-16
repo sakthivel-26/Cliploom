@@ -7,6 +7,7 @@ import os
 import re
 import sqlite3
 import subprocess
+import textwrap
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -25,6 +26,11 @@ DB = DATA / 'projects.sqlite3'
 POOL = ThreadPoolExecutor(max_workers=1)
 MODEL_LOCK = threading.Lock()
 MODELS = {}
+ALLOWED_MODELS = ('small.en', 'medium.en', 'distil-large-v3', 'large-v3')
+DEFAULT_MODEL = 'distil-large-v3'
+MAX_CAPTION_LINE = 42
+MAX_CAPTION_DURATION = 6.0
+MIN_CAPTION_DURATION = 1.0
 
 
 def connect():
@@ -89,7 +95,7 @@ def claim(pid, status, message):
     return p
 
 
-def create_project(name, source, language='auto', quality='base', demo=False, vocabulary=''):
+def create_project(name, source, language='en', quality=DEFAULT_MODEL, demo=False, vocabulary=''):
     pid = uuid.uuid4().hex
     dest = folder(pid) / ('source' + source.suffix.lower())
     source.replace(dest)
@@ -124,6 +130,91 @@ def ffmpeg(args, cwd=None, timeout=900):
         raise RuntimeError('Video processing failed: ' + result.stderr.decode('utf8', 'replace')[-1000:])
 
 
+def prepare_audio(source, destination):
+    """Create a speech-friendly 16 kHz mono WAV without changing its timeline."""
+    ffmpeg(['-i', str(source), '-vn', '-ac', '1', '-ar', '16000',
+            '-af', 'afftdn=nr=6:nf=-50,loudnorm=I=-16:TP=-1.5:LRA=11',
+            '-c:a', 'pcm_s16le', str(destination)])
+
+
+def _caption_text(words):
+    text = ''
+    for word in words:
+        token = word['word'].strip()
+        if not token:
+            continue
+        if text and not re.match(r"^[,.;:!?%)]|^(?:'|’)(?:s|t|re|ve|ll|d|m)$", token, re.I):
+            text += ' '
+        text += token
+    lines = textwrap.wrap(text, width=MAX_CAPTION_LINE, break_long_words=True,
+                          break_on_hyphens=False, max_lines=3)
+    return '\n'.join(lines) if 0 < len(lines) <= 2 else None
+
+
+def caption_segments_from_words(words, duration):
+    """Group timestamped words into short, readable two-line captions."""
+    clean_words = []
+    for word in words:
+        start = max(0.0, float(word.start))
+        end = min(duration, float(word.end))
+        text = str(word.word).strip()
+        probability = float(getattr(word, 'probability', 1.0) or 0.0)
+        if text and end > start:
+            clean_words.append(dict(start=start, end=end, word=text,
+                                    probability=round(max(0.0, min(1.0, probability)), 4)))
+    groups = []
+    group = []
+    for index, word in enumerate(clean_words):
+        candidate = group + [word]
+        span = word['end'] - candidate[0]['start']
+        if group and (span > MAX_CAPTION_DURATION or _caption_text(candidate) is None):
+            groups.append(group)
+            group = [word]
+        else:
+            group = candidate
+        next_start = clean_words[index + 1]['start'] if index + 1 < len(clean_words) else duration
+        pause = max(0.0, next_start - word['end'])
+        group_duration = group[-1]['end'] - group[0]['start']
+        if group_duration >= MIN_CAPTION_DURATION and (re.search(r'[.!?]$', word['word']) or pause >= .45):
+            groups.append(group)
+            group = []
+    if group:
+        groups.append(group)
+
+    # Avoid flashing a final fragment when it fits naturally in a neighbour.
+    index = 0
+    while index < len(groups):
+        group = groups[index]
+        if group[-1]['end'] - group[0]['start'] < MIN_CAPTION_DURATION:
+            if index + 1 < len(groups):
+                combined = group + groups[index + 1]
+                if combined[-1]['end'] - combined[0]['start'] <= MAX_CAPTION_DURATION and _caption_text(combined):
+                    groups[index:index + 2] = [combined]
+                    continue
+            if index and groups[index - 1][-1]['end'] - groups[index - 1][0]['start'] < MAX_CAPTION_DURATION:
+                combined = groups[index - 1] + group
+                if combined[-1]['end'] - combined[0]['start'] <= MAX_CAPTION_DURATION and _caption_text(combined):
+                    groups[index - 1:index + 1] = [combined]
+                    index -= 1
+                    continue
+        index += 1
+
+    segments = []
+    for group in groups:
+        text = _caption_text(group)
+        if not text:
+            continue
+        start = max(segments[-1]['end'] if segments else 0.0, group[0]['start'])
+        end = min(duration, start + MAX_CAPTION_DURATION, group[-1]['end'])
+        if end - start < MIN_CAPTION_DURATION:
+            end = min(duration, start + MIN_CAPTION_DURATION)
+        if end - start < MIN_CAPTION_DURATION:
+            start = max(segments[-1]['end'] if segments else 0.0, end - MIN_CAPTION_DURATION)
+        if end > start:
+            segments.append(dict(start=start, end=end, text=text, words=group))
+    return segments
+
+
 def validate_segments(segments, duration):
     if len(segments) > 2000:
         raise ValueError('Too many caption segments.')
@@ -137,7 +228,22 @@ def validate_segments(segments, duration):
         if len(text) > 500:
             raise ValueError('Each caption must be under 500 characters.')
         if text:
-            clean.append(dict(start=round(start, 3), end=round(min(end, duration), 3), text=text))
+            item = dict(start=round(start, 3), end=round(min(end, duration), 3), text=text)
+            words = []
+            for word in s.get('words', []):
+                w_start = float(word.get('start', start))
+                w_end = float(word.get('end', end))
+                w_text = str(word.get('word', '')).strip()
+                probability = float(word.get('probability', 1.0))
+                clean_start = max(start, w_start)
+                clean_end = min(end, w_end)
+                if (w_text and math.isfinite(clean_start) and math.isfinite(clean_end)
+                        and math.isfinite(probability) and clean_end > clean_start):
+                    words.append(dict(start=round(clean_start, 3), end=round(clean_end, 3),
+                                      word=w_text, probability=round(max(0.0, min(1.0, probability)), 4)))
+            if words:
+                item['words'] = words
+            clean.append(item)
         previous = end
     return clean
 
@@ -176,43 +282,51 @@ def process(pid):
             segments = demo_segments()
             detected = 'en'
         elif p['has_audio']:
-            update(pid, progress=20, message='Loading local speech model. The first run may download model files…')
-            from faster_whisper import WhisperModel
-            with MODEL_LOCK:
-                if p['quality'] not in MODELS:
-                    MODELS[p['quality']] = WhisperModel(p['quality'], device='cpu', compute_type='int8',
-                                                       cpu_threads=4, download_root=str(DATA / 'models'))
-                model = MODELS[p['quality']]
-            update(pid, progress=30, message='Creating captions on this computer…')
-            mixed = p['language'] == 'mixed'
-            prompt = ('This speech may switch between Tamil and English. Preserve Tamil words in Tamil script and English words in English script. ' if mixed else '') + p.get('vocabulary', '')
-            generated, info = model.transcribe(str(d / p['source']), language=None if p['language'] in ('auto', 'mixed') else p['language'],
-                                               vad_filter=True, beam_size=5, word_timestamps=True,
-                                               initial_prompt=prompt or None, hotwords=p.get('vocabulary') or None,
-                                               condition_on_previous_text=False)
-            segments = []
-            for segment in generated:
-                # Short caption groups keep vertical video readable.
-                words = segment.words or []
-                if words:
-                    for offset in range(0, len(words), 7):
-                        group = words[offset:offset + 7]
-                        a, b = max(0, group[0].start), min(p['duration'], group[-1].end)
-                        if b > a:
-                            segments.append(dict(start=a, end=b, text=''.join(w.word for w in group).strip()))
-                elif segment.end > segment.start:
-                    segments.append(dict(start=max(0, segment.start), end=min(p['duration'], segment.end), text=segment.text.strip()))
-                update(pid, progress=min(90, int(30 + 60 * segment.end / p['duration'])), message='Transcribing speech…')
-            # Word alignments can overlap at model boundaries; trim before editing.
-            normalized = []
-            for s in segments:
-                s['start'] = max(s['start'], normalized[-1]['end'] if normalized else 0)
-                if s['end'] > s['start'] and s['text']:
-                    normalized.append(s)
-            segments = validate_segments(normalized, p['duration'])
-            detected = info.language
+            if p['language'] != 'en' or p['quality'] not in ALLOWED_MODELS:
+                raise ValueError('This edition supports English and the current English transcription models only.')
+            cleaned_audio = d / ('cleaned-' + uuid.uuid4().hex + '.wav')
+            try:
+                update(pid, progress=15, message='Cleaning and normalizing audio for English transcription…')
+                prepare_audio(d / p['source'], cleaned_audio)
+                update(pid, progress=25, message='Loading local speech model. The first run may download model files…')
+                from faster_whisper import WhisperModel
+                try:
+                    with MODEL_LOCK:
+                        if p['quality'] not in MODELS:
+                            MODELS[p['quality']] = WhisperModel(
+                                p['quality'], device='cpu', compute_type='int8',
+                                cpu_threads=os.cpu_count() or 1, download_root=str(DATA / 'models'))
+                        model = MODELS[p['quality']]
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"Could not download or load the {p['quality']} speech model. "
+                        'Check your internet connection and available disk space, then retry. '
+                        f'Details: {exc}') from exc
+                update(pid, progress=35, message='Transcribing cleaned English audio…')
+                vocabulary = p.get('vocabulary', '').strip()
+                generated, _ = model.transcribe(
+                    str(cleaned_audio), language='en', vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
+                    beam_size=5, word_timestamps=True, no_speech_threshold=.6,
+                    initial_prompt=vocabulary or None, hotwords=vocabulary or None,
+                    condition_on_previous_text=False)
+                words = []
+                fallback = []
+                for segment in generated:
+                    if segment.words:
+                        words.extend(segment.words)
+                    elif segment.end > segment.start and segment.text.strip():
+                        fallback.append(dict(start=max(0, segment.start), end=min(p['duration'], segment.end),
+                                             text=segment.text.strip()))
+                    update(pid, progress=min(90, int(35 + 55 * segment.end / p['duration'])),
+                           message='Transcribing cleaned English audio…')
+                segments = caption_segments_from_words(words, p['duration']) if words else fallback
+                segments = validate_segments(segments, p['duration'])
+                detected = 'en'
+            finally:
+                cleaned_audio.unlink(missing_ok=True)
         else:
-            segments, detected = [], p['language']
+            segments, detected = [], 'en'
         update(pid, status='ready', progress=100, segments=segments, detected_language=detected,
                clips=suggestions(segments, p['duration']), message='Ready to edit' if segments else 'No speech found. You can still trim and export.', error=None)
     except Exception as exc:
@@ -239,7 +353,8 @@ def make_srt(segments, start, end):
         if b <= a:
             continue
         # Plain text only: avoid subtitle markup controlling formatting.
-        text = re.sub(r'[<>\\{}]', '', s['text']).replace('\r', ' ').replace('\n', ' ')
+        text = '\n'.join(re.sub(r'[<>\\{}]', '', line).replace('\r', ' ')
+                         for line in s['text'].splitlines()[:2])
         rows.append(f'{len(rows)+1}\n{srt_time(a-start)} --> {srt_time(b-start)}\n{text}\n')
     return '\n'.join(rows)
 
@@ -266,7 +381,7 @@ def render(pid, spec):
         if spec['captions'] and subtitle.stat().st_size:
             colors = {'clean': '&H00FFFFFF', 'bold': '&H0058D9FF', 'mint': '&H00C9E8A3', 'coral': '&H0087A1FF', 'lavender': '&H00F0C6D9', 'sky': '&H00F2D6A0'}
             primary = colors[spec['style']]
-            vf += f",subtitles={subtitle.name}:force_style='FontName=Nirmala UI,FontSize=20,PrimaryColour={primary},OutlineColour=&H00101010,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=40'"
+            vf += f",subtitles={subtitle.name}:force_style='FontName=Arial,FontSize=20,PrimaryColour={primary},OutlineColour=&H00101010,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=40'"
         ffmpeg(['-ss', str(spec['start']), '-i', p['source'], '-t', str(spec['end'] - spec['start']),
                 '-vf', vf, '-r', '30', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p',
                 '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', eid + '.mp4'], cwd=d)

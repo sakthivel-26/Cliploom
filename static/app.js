@@ -56,6 +56,28 @@ async function openProject(id){
   try{current=await api(`/api/projects/${id}`);lastStatus='';dirty=false;show('editor');drawEditor(true);loadOllama();window.scrollTo({top:0,behavior:'smooth'});}catch(e){toast(e.message);}
 }
 function busy(p){return ['uploaded','queued','processing','rendering'].includes(p.status);}
+function confidenceMarkup(segment,index){
+  const words=Array.isArray(segment.words)?segment.words:[];
+  if(!words.some(w=>Number(w.probability)<.5))return '';
+  return `<div class="confidence-words" aria-label="Word confidence">${words.map((w,wordIndex)=>Number(w.probability)<.5
+    ?`<button type="button" class="low-confidence" data-low-word="${index}:${wordIndex}" title="Low confidence · click to edit">${esc(w.word)}</button>`
+    :`<span>${esc(w.word)}</span>`).join(' ')}</div>`;
+}
+function focusLowConfidence(button){
+  const [segmentIndex,wordIndex]=button.dataset.lowWord.split(':').map(Number);
+  const textarea=document.querySelector(`[data-caption="${segmentIndex}"]`);
+  const words=current.segments[segmentIndex]?.words||[];
+  if(!textarea||!words[wordIndex])return;
+  let cursor=0,start=-1,end=-1;
+  for(let index=0;index<=wordIndex;index++){
+    const token=String(words[index].word||'').trim();
+    const found=textarea.value.indexOf(token,cursor);
+    if(found<0)continue;
+    start=found;end=found+token.length;cursor=end;
+  }
+  textarea.focus();
+  if(start>=0)textarea.setSelectionRange(start,end);
+}
 function drawEditor(full=false){
   const p=current;if(!p)return;
   $('#project-name').textContent=p.name;$('#project-badge').textContent=p.demo?'PREPARED DEMO':(p.detected_language||p.language).toUpperCase();
@@ -69,9 +91,15 @@ function drawEditor(full=false){
     $('#suggestion-note').textContent=p.demo?'Demo uses prepared captions, not speech recognition. Try uploading a spoken video next.':p.suggestion_model?`Suggestions from ${p.suggestion_model}. Review the cuts before export.`:'Starting points based on transcript timing, not a prediction of engagement. Adjust the range to tell a complete story.';
     $('#clip-list').innerHTML=p.clips.map((c,i)=>`<button class="clip-choice" data-clip="${i}"><small>0${i+1} / ${clock(c.start)} — ${clock(c.end)} · ${(c.end-c.start).toFixed(0)}s</small><strong>${esc(c.title)}</strong></button>`).join('');
     $('#clip-list').querySelectorAll('button').forEach(b=>b.onclick=()=>selectClip(p.clips[+b.dataset.clip]));
-    $('#caption-list').innerHTML=p.segments.length?p.segments.map((s,i)=>`<div class="caption-row" data-segment="${i}"><button data-seek="${s.start}">${clock(s.start)} → ${clock(s.end)}</button><textarea aria-label="Caption ${i+1}" data-caption="${i}">${esc(s.text)}</textarea></div>`).join(''):'<p class="panel-intro">No speech captions found. Try another model or export without captions.</p>';
+    $('#caption-list').innerHTML=p.segments.length?p.segments.map((s,i)=>`<div class="caption-row" data-segment="${i}"><button data-seek="${s.start}">${clock(s.start)} → ${clock(s.end)}</button>${confidenceMarkup(s,i)}<textarea aria-label="Caption ${i+1}" data-caption="${i}">${esc(s.text)}</textarea></div>`).join(''):'<p class="panel-intro">No speech captions found. Try another model or export without captions.</p>';
     $('#caption-list').querySelectorAll('[data-seek]').forEach(b=>b.onclick=()=>{$('#preview').currentTime=+b.dataset.seek;});
-    $('#caption-list').querySelectorAll('textarea').forEach(t=>t.oninput=()=>{dirty=true;$('#caption-save-state').textContent='Unsaved changes';});
+    $('#caption-list').querySelectorAll('[data-low-word]').forEach(b=>b.onclick=()=>focusLowConfidence(b));
+    $('#caption-list').querySelectorAll('textarea').forEach(t=>t.oninput=()=>{
+      const index=+t.dataset.caption;
+      current.segments[index].words=[];
+      t.closest('.caption-row').querySelector('.confidence-words')?.remove();
+      dirty=true;$('#caption-save-state').textContent='Unsaved changes';
+    });
     if(full){selectClip(p.clips[0]||{start:0,end:Math.min(30,p.duration),title:'My short'});}
     drawExports(p.exports,p.id,$('#project-exports'));
   }

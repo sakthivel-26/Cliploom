@@ -1,0 +1,10 @@
+const {readFileSync}=require('node:fs');
+const vm=require('node:vm');
+const assert=require('node:assert/strict');
+const source=readFileSync('docs/asr-worker.js','utf8');
+const context=vm.createContext({});
+vm.runInContext(source.slice(source.indexOf('function explainAsrError'),source.indexOf('self.onmessage')),context);
+assert.match(context.explainAsrError({message:'memory access out of bounds'}),/Whisper Base/);
+assert.match(context.explainAsrError({message:'Failed to fetch'}),/connection/);
+assert.equal(context.explainAsrError({message:'No reliable speech timing was found.'}),'No reliable speech timing was found.');
+console.log('PASS: memory, network and recognition errors remain distinct and actionable.');

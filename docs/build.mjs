@@ -1,7 +1,7 @@
 import { mkdir, copyFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
-const files = ['index.html', 'editor.html', 'editor.css', 'editor.js', 'asr-worker.js', 'sw.js', 'icon.svg', 'icon-192.png', 'icon-512.png', 'manifest.webmanifest', 'robots.txt', 'sitemap.xml'];
+const files = ['index.html', 'editor.html', 'editor.css', 'glass.css', 'waves.svg', 'appearance.js', 'editor.js', 'media-render.js', 'asr-worker.js', 'sw.js', 'icon.svg', 'icon-192.png', 'icon-512.png', 'manifest.webmanifest', 'robots.txt', 'sitemap.xml'];
 const root = new URL('./', import.meta.url);
 await mkdir(new URL('public/', root), { recursive: true });
 for (const file of files) {

@@ -1,0 +1,16 @@
+const assert = require('node:assert/strict');
+const {readFileSync}=require('node:fs');
+const vm=require('node:vm');
+const source=readFileSync('docs/editor.js','utf8');
+const sandbox=vm.createContext({});
+vm.runInContext(source.slice(source.indexOf('function selectAudioChannel'),source.indexOf('async function decodeVideoAudio')),sandbox);
+const buffer=channels=>({numberOfChannels:channels.length,length:channels[0].length,getChannelData:i=>new Float32Array(channels[i])});
+const select=(data,mode)=>Array.from(sandbox.selectAudioChannel(buffer(data),mode));
+assert.deepEqual(select([[.5,-.5],[-.5,.5]],'auto'),[.5,-.5]);
+assert.deepEqual(select([[.5,-.5],[-.5,.5]],'mix'),[0,0]);
+assert.deepEqual(select([[.5,-.5],[.5,-.5]],'auto'),[.5,-.5]);
+assert.deepEqual(select([[.25,.5],[.5,.25]],'left'),[.25,.5]);
+assert.deepEqual(select([[.25,.5],[.5,.25]],'right'),[.5,.25]);
+assert.deepEqual(select([[.25,.5]],'right'),[.25,.5]);
+assert.deepEqual(select([[0,0],[0,0]],'auto'),[0,0]);
+console.log('PASS: opposite-phase voice preservation, ordinary stereo mix, mono fallback and explicit channels.');

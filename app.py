@@ -67,7 +67,7 @@ def static(name: str):
 @app.get('/api/status')
 def status():
     return dict(mode='local', cost=0, max_upload_mb=200, max_duration_minutes=10,
-                models=['tiny', 'base', 'small'], mcp=True)
+                models=list(core.ALLOWED_MODELS), mcp=True)
 
 
 @app.get('/api/projects')
@@ -81,9 +81,10 @@ def project(pid: str):
 
 
 @app.post('/api/projects')
-async def upload(file: UploadFile = File(...), language: str = Form('mixed'), quality: str = Form('small'), vocabulary: str = Form('')):
-    if language not in ('auto', 'ta', 'en', 'mixed') or quality not in ('tiny', 'base', 'small'):
-        raise ValueError('Invalid language or model size.')
+async def upload(file: UploadFile = File(...), language: str = Form('en'),
+                 quality: str = Form(core.DEFAULT_MODEL), vocabulary: str = Form('')):
+    if language != 'en' or quality not in core.ALLOWED_MODELS:
+        raise ValueError('Choose English and a supported English transcription model.')
     if len(vocabulary) > 1000:
         raise ValueError('Keep custom words under 1,000 characters.')
     suffix = Path(file.filename or '').suffix.lower()
@@ -124,10 +125,18 @@ def retry(pid: str):
     return {'ok': True}
 
 
+class Word(BaseModel):
+    start: float
+    end: float
+    word: str = Field(max_length=100)
+    probability: float = Field(default=1.0, ge=0, le=1)
+
+
 class Segment(BaseModel):
     start: float
     end: float
     text: str = Field(max_length=500)
+    words: list[Word] = Field(default_factory=list, max_length=200)
 
 
 class Captions(BaseModel):

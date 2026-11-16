@@ -1,6 +1,6 @@
 # Cliploom — online subtitle editor and local video studio
 
-The [online editor](https://sakthivel-26.github.io/Cliploom/editor.html) works in desktop and mobile browsers. It automatically generates Tamil, Tanglish and English subtitles from a video's audio with a multilingual Whisper model, then lets you correct them, import SRT, and export a captioned video where the browser supports recording. Video processing happens on the visitor's device; there is no upload server or paid AI key.
+The [online editor](https://sakthivel-26.github.io/Cliploom/editor.html) works in desktop and mobile browsers. It generates English subtitles from a video's audio, then lets you correct them, import SRT, and export a captioned video where the browser supports recording. Video processing happens on the visitor's device; there is no upload server or paid AI key.
 
 The separate Windows edition below adds local Whisper transcription, suggested cuts, MP4 rendering and MCP tools. It runs on your computer's CPU.
 
@@ -8,9 +8,9 @@ Cliploom's original application code is available under the [MIT license](LICENS
 
 ## Online and mobile
 
-Open **https://sakthivel-26.github.io/Cliploom/editor.html** on a phone or computer. Choose a video, select the language and model, then click **Generate subtitles automatically**. Correct the result, choose a style and download. You can also add lines or import an SRT. On supported browsers use **Add to Home Screen** or the **Install app** button for an app-like launcher.
+Open **https://sakthivel-26.github.io/Cliploom/editor.html** on a phone or computer. Choose a video and model, then click **Generate subtitles automatically**. Correct the English transcript, choose a style and download. You can also add lines or import an SRT. On supported browsers use **Add to Home Screen** or the **Install app** button for an app-like launcher.
 
-The online editor stores one draft in the browser's IndexedDB when storage is available. Browser storage can be cleared or evicted; keep copies of exported files. It does not sync between devices. Transcription accepts browser-playable videos up to five minutes and 200 MB; the first use downloads a speech model from Hugging Face. The `base` model prioritizes accuracy over speed and size; `tiny` is faster. The browser decodes audio and runs the model locally. Transcription can still miss words, particularly with noisy or mixed-language speech, and segment timing may need correction. Video export records in real time, is limited to three minutes, and saves as MP4 or WebM depending on `MediaRecorder` support. If export is unavailable, SRT download still works. The free static hosting does not run a Python backend for visitors.
+The online editor stores one draft in the browser's IndexedDB when storage is available. Browser storage can be cleared or evicted; keep copies of exported files. It does not sync between devices. Transcription accepts browser-playable videos up to five minutes and 200 MB; the first use downloads an English speech model from Hugging Face. The browser decodes audio and runs the model locally. Transcription can still miss words in noisy recordings, and segment timing may need correction. Video export records in real time and saves as MP4 or WebM depending on `MediaRecorder` support. If export is unavailable, SRT download still works. The free static hosting does not run a Python backend for visitors.
 
 ## Start the Windows edition
 
@@ -20,7 +20,7 @@ The online editor stores one draft in the browser's IndexedDB when storage is av
 4. Click the sample arrow to explore, or upload a spoken video.
 5. Review captions and suggested cuts, choose start/end, and export.
 
-If dependencies are missing, run **Setup-Cliploom.cmd** first. Python 3.14 was used during development; dependency compatibility on other Python versions must be checked. Setup downloads free software. Initial transcription downloads a speech model into `data/models`. Later transcription with that model can run offline. A CPU can take several minutes to process a video. Smaller models are faster but less accurate, especially on Tamil and mixed-language speech.
+If dependencies are missing, run **Setup-Cliploom.cmd** first. Python 3.14 was used during development; dependency compatibility on other Python versions must be checked. Setup downloads free software. Initial transcription downloads a speech model into `data/models`. Later transcription with that model can run offline. CPU transcription can take several times the video's duration depending on the processor and model.
 
 The sample project contains a generated test pattern and prepared captions. It demonstrates the editor/export workflow, not AI transcription accuracy.
 
@@ -28,7 +28,8 @@ The sample project contains a generated test pattern and prepared captions. It d
 
 - Responsive studio UI, upload progress, project history and job status.
 - MP4/MOV/WebM/MKV uploads, up to 200 MB, 10 minutes and 4K source resolution.
-- Local Whisper transcription: Tanglish (Tamil + English), Tamil, English, or automatic language detection. The Tanglish mode adds a mixed-speech prompt; users can supply names and uncommon words for the model. The default `small` model improves capacity over `base` but takes longer and downloads on first use. It is not guaranteed to write every Tamil and English word in the desired script.
+- English-only local Whisper transcription with `small.en`, `medium.en`, `distil-large-v3` (default), and optional `large-v3`. Every run forces English rather than using language detection. Users can supply names, brands and technical terms through the vocabulary field.
+- Speech audio is converted to a normalized 16 kHz mono WAV with conservative noise reduction before transcription. Word timestamps, VAD, beam search and low-confidence highlighting make likely mistakes easier to review.
 - Editable captions and short transcript-based suggested cuts.
 - Optional local Ollama suggestions if you already have a model running.
 - Manual trim, fit or centre-crop, and six burned-in caption colours: white, yellow, mint, coral, lavender and sky blue.
@@ -68,7 +69,7 @@ Close the console or press Ctrl+C to stop. Avoid closing during an export. The n
 
 ## Validation
 
-Run `.venv\Scripts\python.exe -m pytest -q` from this directory. Tests generate real video, render Tamil/English captions, verify duration/resolution and downloads, reject invalid requests, and exercise restart recovery. Model recognition accuracy requires real speech samples and human review; automated rendering tests do not establish it.
+Run `.venv\Scripts\python.exe -m pytest -q` from this directory. Tests generate real video, preprocess audio, render English captions, verify duration/resolution and downloads, reject unsupported languages/models, and exercise restart recovery. Model recognition accuracy requires real speech samples and human review; automated rendering tests do not establish it.
 
 ## Components
 
